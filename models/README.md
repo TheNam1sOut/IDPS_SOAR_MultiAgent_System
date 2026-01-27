@@ -1,0 +1,1 @@
+This directory will contain the saved detection model and information about it

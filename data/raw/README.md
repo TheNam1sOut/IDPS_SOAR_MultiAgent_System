@@ -1,0 +1,1 @@
+This directory contains the raw dataset used for training our DL model. Since the dataset is too big, we have attached *grab_files.py* to automatically download the dataset.
