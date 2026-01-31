@@ -1,1 +1,0 @@
-This directory stores code to preprocess the dataset and test the model
