@@ -1,127 +1,63 @@
-"""
-CIC-IDS-2017 LSTM Inference Script
----------------------------------
-Chức năng:
-- Load scaler + trained LSTM model
-- Load preprocessed test dataset
-- Build time-series sequences (windowing)
-- Predict multi-class labels
-- Xuất kết quả + đánh giá cơ bản
-
-LƯU Ý:
-- KHÔNG fit lại scaler
-- KHÔNG shuffle dữ liệu
-"""
-
 import numpy as np
 import pandas as pd
 import joblib
+import os
 from tensorflow.keras.models import load_model
 from sklearn.metrics import classification_report, confusion_matrix
 
-
 # =========================
-# CONFIG
+# CẤU HÌNH ĐƯỜNG DẪN
 # =========================
-
 TEST_CSV = "./data/preprocessed/test_processed.csv"
-
-MODEL_PATH  = "./models/model.keras"
+MODEL_PATH  = "./models/binary_model.keras" # Đọc đúng model binary vừa train
 SCALER_PATH = "./models/standard_scaler.joblib"
+OUTPUT_PRED_CSV = "./results/binary_test_predictions.csv"
 
 LABEL_COL = "Label"
-
 TIMESTEPS  = 10
 BATCH_SIZE = 256
 
-OUTPUT_PRED_CSV = "./results/test_predictions.csv"
-
-
-# =========================
-# FUNCTIONS
-# =========================
-
-def load_test_data(path):
-    print("[+] Loading test dataset...")
-    df = pd.read_csv(path)
-    print(f"[+] Loaded: {df.shape[0]} rows")
-    return df
-
-
-def build_sequences(X, y, timesteps):
-    """
-    Chuyển dữ liệu tabular -> sequence cho LSTM
-    """
-    X_seq = []
-    y_seq = []
-
-    for i in range(len(X) - timesteps):
-        X_seq.append(X.iloc[i:i + timesteps].values)
-        y_seq.append(y.iloc[i + timesteps])
-
-    return np.array(X_seq), np.array(y_seq)
-
-
 def main():
-    # =========================
-    # LOAD MODEL & SCALER
-    # =========================
-    print("[+] Loading scaler...")
-    scaler = joblib.load(SCALER_PATH)
+    # Kiểm tra đường dẫn
+    if not os.path.exists(MODEL_PATH):
+        print(f"[!] Không tìm thấy model tại {MODEL_PATH}")
+        return
 
-    print("[+] Loading trained LSTM model...")
+    print(f"[+] Đang load model từ {MODEL_PATH}...")
     model = load_model(MODEL_PATH)
 
-    # =========================
-    # LOAD TEST DATA
-    # =========================
-    df = load_test_data(TEST_CSV)
-
+    print("[+] Đang load dữ liệu test...")
+    df = pd.read_csv(TEST_CSV)
     X = df.drop(columns=[LABEL_COL])
     y = df[LABEL_COL]
 
-    # =========================
-    # BUILD SEQUENCES
-    # =========================
-    print("[+] Building LSTM sequences...")
-    X_seq, y_seq = build_sequences(X, y, TIMESTEPS)
+    # Tạo sequence cho LSTM
+    print("[+] Tạo sequence...")
+    X_seq = []
+    y_seq = []
+    for i in range(len(X) - TIMESTEPS):
+        X_seq.append(X.iloc[i:i + TIMESTEPS].values)
+        y_seq.append(y.iloc[i + TIMESTEPS])
+    X_seq = np.array(X_seq)
+    y_seq = np.array(y_seq)
 
-    print(f"[+] Sequence shape: {X_seq.shape}")
-    print(f"[+] Label shape   : {y_seq.shape}")
+    # Dự đoán
+    print("[+] Đang dự đoán (Binary)...")
+    y_prob = model.predict(X_seq, batch_size=BATCH_SIZE, verbose=1)
+    
+    # Ngưỡng 0.5: > 0.5 là Attack (1), <= 0.5 là Benign (0)
+    y_pred = (y_prob > 0.5).astype(int).flatten()
 
-    # =========================
-    # PREDICTION
-    # =========================
-    print("[+] Running inference...")
-    y_prob = model.predict(
-        X_seq,
-        batch_size=BATCH_SIZE,
-        verbose=1
-    )
-
-    y_pred = np.argmax(y_prob, axis=1)
-
-    # =========================
-    # EVALUATION
-    # =========================
-    print("\n========== CLASSIFICATION REPORT ==========")
-    print(classification_report(y_seq, y_pred, digits=4))
-
-    print("========== CONFUSION MATRIX ==========")
+    # Đánh giá
+    print("\n========== KẾT QUẢ BINARY CLASSIFICATION ==========")
+    print(classification_report(y_seq, y_pred, digits=4, target_names=["Benign", "Attack"]))
+    print("Confusion Matrix:")
     print(confusion_matrix(y_seq, y_pred))
 
-    # =========================
-    # SAVE RESULTS
-    # =========================
-    print("[+] Saving predictions...")
-    result_df = pd.DataFrame({
-        "y_true": y_seq,
-        "y_pred": y_pred
-    })
-
-    result_df.to_csv(OUTPUT_PRED_CSV, index=False)
-    print(f"[+] Predictions saved to {OUTPUT_PRED_CSV}")
-
+    # Lưu kết quả
+    os.makedirs("./results", exist_ok=True)
+    pd.DataFrame({"y_true": y_seq, "y_pred": y_pred}).to_csv(OUTPUT_PRED_CSV, index=False)
+    print(f"[+] Đã lưu kết quả tại {OUTPUT_PRED_CSV}")
 
 if __name__ == "__main__":
     main()
